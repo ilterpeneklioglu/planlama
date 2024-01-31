@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZIP_001</ARBGB>
+    <MASTERLANG>E</MASTERLANG>
+    <STEXT>Planlama İleti Sınıfı</STEXT>
+   </T100A>
+   <T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZIP_001</ARBGB>
+     <MSGNR>000</MSGNR>
+     <TEXT>Dosya yolu boş ya da yanlış yazılmış!</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZIP_001</ARBGB>
+     <MSGNR>001</MSGNR>
+     <TEXT>Çalışan tablosunu doldurunuz!</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZIP_001</ARBGB>
+     <MSGNR>002</MSGNR>
+     <TEXT>Hesaplamalar sırasında hata!</TEXT>
+    </T100>
+   </T100>
+  </asx:values>
+ </asx:abap>
+</abapGit>
