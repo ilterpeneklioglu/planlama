@@ -110,16 +110,10 @@
       <TEXT_NAME>ICON_XLS</TEXT_NAME>
       <ICON_ID>@J2@</ICON_ID>
       <FUN_TEXT>Download Excel</FUN_TEXT>
+      <ICON_TEXT>Download Excel</ICON_TEXT>
+      <INFO_TEXT>Download Excel</INFO_TEXT>
      </RSMPE_FUNT>
     </FUN>
-    <BUT>
-     <RSMPE_BUT>
-      <PFK_CODE>000001</PFK_CODE>
-      <CODE>0001</CODE>
-      <NO>01</NO>
-      <PFNO>02</PFNO>
-     </RSMPE_BUT>
-    </BUT>
     <PFK>
      <RSMPE_PFK>
       <CODE>000001</CODE>
@@ -198,6 +192,12 @@
      <LENGTH>25</LENGTH>
     </item>
     <item>
+     <ID>I</ID>
+     <KEY>S05</KEY>
+     <ENTRY>Holidays</ENTRY>
+     <LENGTH>18</LENGTH>
+    </item>
+    <item>
      <ID>R</ID>
      <ENTRY>Proje Planlama Ekranı</ENTRY>
      <LENGTH>21</LENGTH>
@@ -214,6 +214,24 @@
      <ENTRY>.</ENTRY>
      <LENGTH>9</LENGTH>
      <SPLIT>D</SPLIT>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_PUBHOL</KEY>
+     <ENTRY>Remove Public Holidays</ENTRY>
+     <LENGTH>31</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_STRDY</KEY>
+     <ENTRY>Remove Saturdays</ENTRY>
+     <LENGTH>25</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_SUNDAY</KEY>
+     <ENTRY>Remove Sundays</ENTRY>
+     <LENGTH>23</LENGTH>
     </item>
    </TPOOL>
   </asx:values>

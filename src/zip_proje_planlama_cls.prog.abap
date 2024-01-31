@@ -38,7 +38,8 @@ CLASS lcl_main DEFINITION CREATE PRIVATE FINAL.
       user_command_0100,
       handle_top_of_page FOR EVENT top_of_page OF cl_gui_alv_grid
         IMPORTING e_dyndoc_id table_index,
-      download_excel.
+      day_formatting IMPORTING iv_date TYPE d
+                     EXPORTING ev_date TYPE char10.
 
   PRIVATE SECTION.
     CLASS-DATA mo_main TYPE REF TO lcl_main.
@@ -155,6 +156,8 @@ CLASS lcl_main IMPLEMENTATION.
   ENDMETHOD.
   METHOD data_regulation.
 
+    DATA : lv_num TYPE numc2.
+
     "Uyarlama tablosundan çalışılacak modül ve kişi sayıları alınır
     SELECT * FROM zip_t_kaynak INTO TABLE @DATA(lt_kaynak).
     IF sy-subrc <> 0.
@@ -163,33 +166,36 @@ CLASS lcl_main IMPLEMENTATION.
 
     "Tablodan alınan veriler çalışacak kişi sayısına göre ara bir tabloya alınarak çoklanır
     LOOP AT lt_kaynak INTO DATA(ls_kaynak).
+      CLEAR lv_num.
       DO ls_kaynak-calisan TIMES.
+        lv_num = lv_num + 1.
         CASE ls_kaynak-modul.
           WHEN 'ABAP'.
             APPEND INITIAL LINE TO gt_dist_abap ASSIGNING FIELD-SYMBOL(<fs_dist>).
-            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ sy-index }|.
+            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ lv_num }|.
             <fs_dist>-modul  = ls_kaynak-modul.
             UNASSIGN <fs_dist>.
           WHEN 'FIORI'.
             APPEND INITIAL LINE TO gt_dist_fiori ASSIGNING <fs_dist>.
-            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ sy-index }|.
+            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ lv_num }|.
             <fs_dist>-modul  = ls_kaynak-modul.
             UNASSIGN <fs_dist>.
           WHEN 'PI'.
             APPEND INITIAL LINE TO gt_dist_pi ASSIGNING <fs_dist>.
-            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ sy-index }|.
+            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ lv_num }|.
             <fs_dist>-modul  = ls_kaynak-modul.
             UNASSIGN <fs_dist>.
           WHEN OTHERS.
             APPEND INITIAL LINE TO gt_dist_modul ASSIGNING <fs_dist>.
-            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ sy-index }|.
+            <fs_dist>-kaynak = |{ ls_kaynak-modul }{ lv_num }|.
             <fs_dist>-modul  = ls_kaynak-modul.
             UNASSIGN <fs_dist>.
         ENDCASE.
       ENDDO.
     ENDLOOP.
 
-    LOOP AT gt_excel ASSIGNING FIELD-SYMBOL(<fs_excel>).
+    SORT gt_excel ASCENDING BY faz oncelik.
+    LOOP AT gt_excel ASSIGNING FIELD-SYMBOL(<fs_excel>) WHERE abap IS NOT INITIAL OR modul IS NOT INITIAL.
       abap_section( EXPORTING is_line = <fs_excel> ).
       fiori_section( EXPORTING is_line = <fs_excel> ).
       pi_section( EXPORTING is_line = <fs_excel> ).
@@ -245,13 +251,16 @@ CLASS lcl_main IMPLEMENTATION.
   METHOD modul_section.
 
     IF is_line-modul IS NOT INITIAL.
-
       DATA(lt_dist) = FILTER #( gt_dist_modul USING KEY key1 WHERE modul = is_line-modul_adi ).
       SORT lt_dist BY count kaynak ASCENDING.
 
       ASSIGN lt_dist[ 1 ] TO FIELD-SYMBOL(<fs_dist_modul>).
+      IF <fs_dist_modul> IS NOT ASSIGNED.
+        EXIT.
+      ENDIF.
       ASSIGN <fs_dist_modul>-t_dev TO FIELD-SYMBOL(<fs_modtab>) .
 
+      CHECK is_line-modul IS NOT INITIAL..
       IF <fs_modtab> IS ASSIGNED.
         <fs_modtab> = VALUE #( BASE <fs_modtab> FOR i = 0 THEN i + 1 UNTIL i = is_line-modul ( development = is_line-gelistirme_maddesi ) ).
         UNASSIGN <fs_modtab>.
@@ -315,7 +324,8 @@ CLASS lcl_main IMPLEMENTATION.
   ENDMETHOD.
   METHOD find_days.
 
-    DATA: lv_dayname TYPE char10.
+    DATA: lv_dayname TYPE char10,
+          lv_count   TYPE sy-tabix.
 
     "ABAP
     APPEND INITIAL LINE TO gt_duration ASSIGNING FIELD-SYMBOL(<fs_duration>).
@@ -341,62 +351,79 @@ CLASS lcl_main IMPLEMENTATION.
     SORT gt_duration DESCENDING BY duration.
     gv_duration = VALUE #( gt_duration[ 1 ]-duration OPTIONAL ).
 
-    "Çalışma başlangıç tarihinden itibaren toplam çalışılacak sayıya göre son gün bulunur
-    CALL FUNCTION 'END_TIME_DETERMINE'
+    REFRESH gt_days.
+    p_enddat = p_begdat + gv_duration.
+    CALL FUNCTION 'DAY_ATTRIBUTES_GET'
       EXPORTING
-        duration                   = gv_duration
         factory_calendar           = 'TR'
-      IMPORTING
-        end_date                   = p_enddat
-      CHANGING
-        start_date                 = p_begdat
+        holiday_calendar           = 'TR'
+        date_from                  = p_begdat
+        date_to                    = p_enddat
+        language                   = sy-langu
+      TABLES
+        day_attributes             = gt_days_detail
       EXCEPTIONS
         factory_calendar_not_found = 1
-        date_out_of_calendar_range = 2
-        date_not_valid             = 3
-        unit_conversion_error      = 4
-        si_unit_missing            = 5
-        parameters_no_valid        = 6
-        OTHERS                     = 7.
+        holida>has_invalid_format  = 3
+        date_inconsistency         = 4
+        OTHERS                     = 5.
 
-    "İki tarih arasındaki tüm çalışma günlerini getiren fonksiyon
-    REFRESH gt_days.
-    CALL FUNCTION 'RKE_SELECT_FACTDAYS_FOR_PERIOD'
-      EXPORTING
-        i_datab  = p_begdat
-        i_datbi  = p_enddat
-        i_factid = 'TR'
-      TABLES
-        eth_dats = gt_days.
+    IF p_pubhol IS NOT INITIAL.
+      DELETE gt_days_detail WHERE holiday IS NOT INITIAL.
+    ENDIF.
+    IF p_strdy IS NOT INITIAL.
+      DELETE gt_days_detail WHERE freeday IS NOT INITIAL AND weekday EQ '6'.
+    ENDIF.
+    IF p_sunday IS NOT INITIAL.
+      DELETE gt_days_detail WHERE freeday IS NOT INITIAL AND weekday EQ '7'.
+    ENDIF.
+
+    LOOP AT gt_days_detail ASSIGNING FIELD-SYMBOL(<fs_date>).
+      APPEND INITIAL LINE TO gt_days ASSIGNING FIELD-SYMBOL(<fs_day>).
+      <fs_day>-periodat = <fs_date>-date.
+    ENDLOOP.
 
   ENDMETHOD.
   METHOD fill_dynamic_table.
 
-    "ABAP
-    SORT gt_dist_abap ASCENDING BY kaynak.
-    LOOP AT gt_dist_abap ASSIGNING FIELD-SYMBOL(<fs_abap>).
+    DATA: iv_date TYPE d.
+
+
+    DELETE gt_dist_abap WHERE count IS INITIAL.
+    DELETE gt_dist_modul WHERE count IS INITIAL.
+    DELETE gt_dist_fiori WHERE count IS INITIAL.
+    DELETE gt_dist_pi WHERE count IS INITIAL.
+
+    LOOP AT gt_days ASSIGNING FIELD-SYMBOL(<fs_days>).
       APPEND INITIAL LINE TO <gfs_tab> ASSIGNING FIELD-SYMBOL(<fs_tab>).
-      ASSIGN COMPONENT 'CONSULTANT' OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_cons>).
-      <fs_cons> = <fs_abap>-kaynak.
-      LOOP AT gt_days ASSIGNING FIELD-SYMBOL(<fs_days>).
-        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_cons>.
+      ASSIGN COMPONENT 'DAY_VALUE' OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_day_val>).
+      CLEAR iv_date.
+      iv_date = <fs_days>-periodat.
+      day_formatting( EXPORTING iv_date = iv_date IMPORTING ev_date = DATA(ev_date) ).
+      <fs_day_val> = ev_date.
+      ASSIGN COMPONENT 'DAY_NAME' OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_day_name>).
+      READ TABLE gt_days_detail INTO DATA(ls_detail) WITH KEY date = <fs_days>-periodat.
+      <fs_day_name> = ls_detail-weekday_l.
+    ENDLOOP.
+
+
+    "ABAP
+    LOOP AT gt_dist_abap ASSIGNING FIELD-SYMBOL(<fs_abap>).
+      LOOP AT <gfs_tab> ASSIGNING <fs_tab>.
+        ASSIGN COMPONENT <fs_abap>-kaynak OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_cell>).
         LOOP AT <fs_abap>-t_dev ASSIGNING FIELD-SYMBOL(<fs_line>).
-          <fs_cons> = <fs_line>-development.
+          <fs_cell> = <fs_line>-development.
           DELETE <fs_abap>-t_dev.
           EXIT.
         ENDLOOP.
       ENDLOOP.
     ENDLOOP.
     "FIORI
-    SORT gt_dist_fiori ASCENDING BY kaynak.
     LOOP AT gt_dist_fiori ASSIGNING FIELD-SYMBOL(<fs_fiori>).
-      APPEND INITIAL LINE TO <gfs_tab>  ASSIGNING <fs_tab>.
-      ASSIGN COMPONENT 'CONSULTANT' OF STRUCTURE <fs_tab> TO <fs_cons>.
-      <fs_cons> = <fs_fiori>-kaynak.
-      LOOP AT gt_days ASSIGNING <fs_days>.
-        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_cons>.
+      LOOP AT <gfs_tab> ASSIGNING <fs_tab>.
+        ASSIGN COMPONENT <fs_fiori>-kaynak OF STRUCTURE <fs_tab> TO <fs_cell>.
         LOOP AT <fs_fiori>-t_dev ASSIGNING <fs_line>.
-          <fs_cons> = <fs_line>-development.
+          <fs_cell> = <fs_line>-development.
           DELETE <fs_fiori>-t_dev.
           EXIT.
         ENDLOOP.
@@ -404,13 +431,10 @@ CLASS lcl_main IMPLEMENTATION.
     ENDLOOP.
     "PI
     LOOP AT gt_dist_pi ASSIGNING FIELD-SYMBOL(<fs_pi>).
-      APPEND INITIAL LINE TO <gfs_tab> ASSIGNING <fs_tab>.
-      ASSIGN COMPONENT 'CONSULTANT' OF STRUCTURE <fs_tab> TO <fs_cons>.
-      <fs_cons> = <fs_pi>-kaynak.
-      LOOP AT gt_days ASSIGNING <fs_days>.
-        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_cons>.
+      LOOP AT <gfs_tab> ASSIGNING <fs_tab>.
+        ASSIGN COMPONENT <fs_fiori>-kaynak OF STRUCTURE <fs_tab> TO <fs_cell>.
         LOOP AT <fs_pi>-t_dev ASSIGNING <fs_line>.
-          <fs_cons> = <fs_line>-development.
+          <fs_cell> = <fs_line>-development.
           DELETE <fs_pi>-t_dev.
           EXIT.
         ENDLOOP.
@@ -418,18 +442,80 @@ CLASS lcl_main IMPLEMENTATION.
     ENDLOOP.
     "MODUL
     LOOP AT gt_dist_modul ASSIGNING FIELD-SYMBOL(<fs_modul>).
-      APPEND INITIAL LINE TO <gfs_tab> ASSIGNING <fs_tab>.
-      ASSIGN COMPONENT 'CONSULTANT' OF STRUCTURE <fs_tab> TO <fs_cons>.
-      <fs_cons> = <fs_modul>-kaynak.
-      LOOP AT gt_days ASSIGNING <fs_days>.
-        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_cons>.
+      LOOP AT <gfs_tab> ASSIGNING <fs_tab>.
+        ASSIGN COMPONENT <fs_modul>-kaynak OF STRUCTURE <fs_tab> TO <fs_cell>.
         LOOP AT <fs_modul>-t_dev ASSIGNING <fs_line>.
-          <fs_cons> = <fs_line>-development.
+          <fs_cell> = <fs_line>-development.
           DELETE <fs_modul>-t_dev.
           EXIT.
         ENDLOOP.
       ENDLOOP.
     ENDLOOP.
+
+*    "ABAP
+*    SORT gt_dist_abap ASCENDING BY kaynak.
+*    LOOP AT gt_dist_abap ASSIGNING FIELD-SYMBOL(<fs_abap>).
+*      APPEND INITIAL LINE TO <gfs_tab> ASSIGNING <fs_tab>.
+*      ASSIGN COMPONENT <fs_abap>-kaynak OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_cons>).
+*      <fs_cons> = <fs_abap>-kaynak.
+*      LOOP AT gt_days ASSIGNING <fs_days>.
+*        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO FIELD-SYMBOL(<fs_date>).
+*        LOOP AT <fs_abap>-t_dev ASSIGNING FIELD-SYMBOL(<fs_line>).
+*          <fs_date> = <fs_line>-development.
+*          DELETE <fs_abap>-t_dev.
+*          EXIT.
+*        ENDLOOP.
+*      ENDLOOP.
+*    ENDLOOP.
+*
+*    "FIORI
+*    SORT gt_dist_fiori ASCENDING BY kaynak.
+*    LOOP AT gt_dist_fiori ASSIGNING FIELD-SYMBOL(<fs_fiori>).
+*      APPEND INITIAL LINE TO <gfs_tab>  ASSIGNING <fs_tab>.
+*      ASSIGN COMPONENT <fs_fiori>-kaynak OF STRUCTURE <fs_tab> TO <fs_cons>.
+*      <fs_cons> = <fs_fiori>-kaynak.
+*      UNASSIGN <fs_cons>.
+*      LOOP AT gt_days ASSIGNING <fs_days>.
+*        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_date>.
+*        LOOP AT <fs_fiori>-t_dev ASSIGNING <fs_line>.
+*          <fs_date> = <fs_line>-development.
+*          DELETE <fs_fiori>-t_dev.
+*          EXIT.
+*        ENDLOOP.
+*      ENDLOOP.
+*    ENDLOOP.
+*
+*    "PI
+*    LOOP AT gt_dist_pi ASSIGNING FIELD-SYMBOL(<fs_pi>).
+*      APPEND INITIAL LINE TO <gfs_tab> ASSIGNING <fs_tab>.
+*      ASSIGN COMPONENT <fs_pi>-kaynak OF STRUCTURE <fs_tab> TO <fs_cons>.
+*      <fs_cons> = <fs_pi>-kaynak.
+*      UNASSIGN <fs_cons>.
+*      LOOP AT gt_days ASSIGNING <fs_days>.
+*        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_date>.
+*        LOOP AT <fs_pi>-t_dev ASSIGNING <fs_line>.
+*          <fs_date> = <fs_line>-development.
+*          DELETE <fs_pi>-t_dev.
+*          EXIT.
+*        ENDLOOP.
+*      ENDLOOP.
+*    ENDLOOP.
+*
+*    "MODUL
+*    LOOP AT gt_dist_modul ASSIGNING FIELD-SYMBOL(<fs_modul>).
+*      APPEND INITIAL LINE TO <gfs_tab> ASSIGNING <fs_tab>.
+*      ASSIGN COMPONENT <fs_modul>-kaynak OF STRUCTURE <fs_tab> TO <fs_cons>.
+*      <fs_cons> = <fs_modul>-kaynak.
+*      UNASSIGN <fs_cons>.
+*      LOOP AT gt_days ASSIGNING <fs_days>.
+*        ASSIGN COMPONENT <fs_days> OF STRUCTURE <fs_tab> TO <fs_date>.
+*        LOOP AT <fs_modul>-t_dev ASSIGNING <fs_line>.
+*          <fs_date> = <fs_line>-development.
+*          DELETE <fs_modul>-t_dev.
+*          EXIT.
+*        ENDLOOP.
+*      ENDLOOP.
+*    ENDLOOP.
 
 
   ENDMETHOD.
@@ -443,18 +529,63 @@ CLASS lcl_main IMPLEMENTATION.
           ls_comp_fld  TYPE cl_abap_structdescr=>component,
           lv_name      TYPE char10.
 
-    "İlk sütun olarak danışman alanı eklenir
-    CLEAR: ls_comp_fld,it_comp_tab.
+    "Hücre renklendirme için
+    CLEAR: ls_comp_fld.
+    lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'TY_COLOR' ).
+    ls_comp_fld-name = 'COLOR_TAB'.
+*    ls_comp_fld-type = cl_abap_elemdescr=>get_string( ).
+    APPEND ls_comp_fld TO it_comp_tab.
+
+    "İlk sütun olarak gün eklenir
+    CLEAR: ls_comp_fld.
     lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'TEXT' ).
-    ls_comp_fld-name = 'CONSULTANT'.
+    ls_comp_fld-name = 'DAY_VALUE'.
     ls_comp_fld-type = cl_abap_elemdescr=>get_string( ).
     APPEND ls_comp_fld TO it_comp_tab.
 
-    LOOP AT gt_days ASSIGNING FIELD-SYMBOL(<fs_days>).
-      CLEAR: ls_comp_fld,lv_name.
-      lv_name = <fs_days>-periodat.
+    "İkinci sütun olarak gün eklenir
+    CLEAR: ls_comp_fld.
+    lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'TEXT' ).
+    ls_comp_fld-name = 'DAY_NAME'.
+    ls_comp_fld-type = cl_abap_elemdescr=>get_string( ).
+    APPEND ls_comp_fld TO it_comp_tab.
+
+    "ABAP
+    SORT gt_dist_abap ASCENDING BY kaynak.
+    LOOP AT gt_dist_abap ASSIGNING FIELD-SYMBOL(<fs_abap>).
+      CLEAR: ls_comp_fld.
       lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'CHAR10' ).
-      ls_comp_fld-name = lv_name.
+      ls_comp_fld-name = <fs_abap>-kaynak.
+      ls_comp_fld-type = cl_abap_elemdescr=>get_c( p_length = 10 ).
+      APPEND ls_comp_fld TO it_comp_tab.
+    ENDLOOP.
+
+    "Modul
+    SORT gt_dist_modul ASCENDING BY kaynak.
+    LOOP AT gt_dist_modul ASSIGNING FIELD-SYMBOL(<fs_modul>).
+      CLEAR: ls_comp_fld.
+      lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'CHAR10' ).
+      ls_comp_fld-name = <fs_modul>-kaynak.
+      ls_comp_fld-type = cl_abap_elemdescr=>get_c( p_length = 10 ).
+      APPEND ls_comp_fld TO it_comp_tab.
+    ENDLOOP.
+
+    "PI
+    SORT gt_dist_pi ASCENDING BY kaynak.
+    LOOP AT gt_dist_pi ASSIGNING FIELD-SYMBOL(<fs_pi>).
+      CLEAR: ls_comp_fld.
+      lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'CHAR10' ).
+      ls_comp_fld-name = <fs_pi>-kaynak.
+      ls_comp_fld-type = cl_abap_elemdescr=>get_c( p_length = 10 ).
+      APPEND ls_comp_fld TO it_comp_tab.
+    ENDLOOP.
+
+    "FIORI
+    SORT gt_dist_fiori ASCENDING BY kaynak.
+    LOOP AT gt_dist_fiori ASSIGNING FIELD-SYMBOL(<fs_fiori>).
+      CLEAR: ls_comp_fld.
+      lo_elem_type ?= cl_abap_elemdescr=>describe_by_name( 'CHAR10' ).
+      ls_comp_fld-name = <fs_fiori>-kaynak.
       ls_comp_fld-type = cl_abap_elemdescr=>get_c( p_length = 10 ).
       APPEND ls_comp_fld TO it_comp_tab.
     ENDLOOP.
@@ -484,7 +615,8 @@ CLASS lcl_main IMPLEMENTATION.
 
     DATA: lo_tabdescr TYPE REF TO cl_abap_structdescr,
           lo_data     TYPE REF TO data,
-          lt_dfies    TYPE ddfields.
+          lt_dfies    TYPE ddfields,
+          iv_date     TYPE d.
 
     REFRESH :gt_fieldcat.
     CREATE DATA lo_data LIKE LINE OF it_table.
@@ -494,8 +626,13 @@ CLASS lcl_main IMPLEMENTATION.
     LOOP AT lt_dfies ASSIGNING FIELD-SYMBOL(<fs_dfies>).
       APPEND INITIAL LINE TO gt_fieldcat ASSIGNING FIELD-SYMBOL(<fs_fcat>).
       MOVE-CORRESPONDING <fs_dfies> TO <fs_fcat>.
+*      iv_date = <fs_dfies>-fieldname.
+*      day_formatting( EXPORTING iv_date = iv_date IMPORTING ev_date = DATA(ev_date) ).
+*      <fs_fcat>-coltext = COND #( WHEN <fs_dfies>-fieldname EQ 'CONSULTANT' THEN <fs_dfies>-fieldname
+*                                  ELSE ev_date ).
       <fs_fcat>-coltext = <fs_dfies>-fieldname.
       <fs_fcat>-col_opt = abap_true.
+      <fs_fcat>-no_out = COND #( WHEN <fs_dfies>-fieldname EQ 'DAY_RAW' THEN abap_true ELSE '' ).
     ENDLOOP.
 
   ENDMETHOD.
@@ -538,7 +675,7 @@ CLASS lcl_main IMPLEMENTATION.
 
       CALL METHOD go_grid->set_table_for_first_display
         EXPORTING
-          is_layout            = VALUE #( zebra = 'X' cwidth_opt = 'X' no_rowins = 'X' sel_mode = 'A' grid_title = 'Planlama Tablosu' )
+          is_layout            = VALUE #( zebra = 'X' cwidth_opt = 'X' no_rowins = 'X' sel_mode = 'A' grid_title = 'Planlama Tablosu' ctab_fname = 'COLOR_TAB' )
           i_save               = 'A'
           it_toolbar_excluding = lt_exclude
         CHANGING
@@ -583,8 +720,6 @@ CLASS lcl_main IMPLEMENTATION.
     CASE sy-ucomm.
       WHEN 'BACK' OR '&ESC'.
         LEAVE TO SCREEN 0.
-      WHEN 'EXCEL'.
-        download_excel( ).
     ENDCASE.
 
   ENDMETHOD.
@@ -617,40 +752,12 @@ CLASS lcl_main IMPLEMENTATION.
         parent = o_ref2.
 
   ENDMETHOD.
-  METHOD download_excel.
-*    CALL METHOD cl_gui_frontend_services=>gui_download
-*      EXPORTING
-*        filename                = default_file_path
-*        filetype                = 'ASC'
-*        write_field_separator   = 'X'
-*        fieldnames              = git_header_text
-*      CHANGING
-*        data_tab                = <fs_dynamic_tab>
-*      EXCEPTIONS
-*        file_write_error        = 1
-*        no_batch                = 2
-*        gui_refuse_filetransfer = 3
-*        invalid_type            = 4
-*        no_authority            = 5
-*        unknown_error           = 6
-*        header_not_allowed      = 7
-*        separator_not_allowed   = 8
-*        filesize_not_allowed    = 9
-*        header_too_long         = 10
-*        dp_error_create         = 11
-*        dp_error_send           = 12
-*        dp_error_write          = 13
-*        unknown_dp_error        = 14
-*        access_denied           = 15
-*        dp_out_of_memory        = 16
-*        disk_full               = 17
-*        dp_timeout              = 18
-*        file_not_found          = 19
-*        dataprovider_exception  = 20
-*        control_flush_error     = 21
-*        not_supported_by_gui    = 22
-*        error_no_gui            = 23
-*        OTHERS                  = 24.
+  METHOD day_formatting.
+    CALL FUNCTION 'HRGPBS_HESA_DATE_FORMAT'
+      EXPORTING
+        p_date     = iv_date
+      IMPORTING
+        datestring = ev_date.
   ENDMETHOD.
 ENDCLASS.
 

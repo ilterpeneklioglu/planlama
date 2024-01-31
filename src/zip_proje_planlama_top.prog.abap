@@ -8,12 +8,11 @@ TABLES : sscrfields.
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-s01.
   PARAMETERS : p_begdat TYPE datum.
   PARAMETERS : p_enddat TYPE datum NO-DISPLAY.
-*  PARAMETERS : p_haftas AS CHECKBOX,
-*               p_tatil  AS CHECKBOX.
 SELECTION-SCREEN END OF BLOCK b1.
 
 SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-s02.
-  PARAMETERS : p_file TYPE rlgrap-filename.
+  PARAMETERS : p_file TYPE rlgrap-filename,
+               p_fname TYPE ibipparms-path NO-DISPLAY.
 SELECTION-SCREEN END OF BLOCK b2.
 
 SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE TEXT-s03.
@@ -23,6 +22,12 @@ SELECTION-SCREEN BEGIN OF BLOCK b4 WITH FRAME TITLE TEXT-s04.
   SELECTION-SCREEN PUSHBUTTON /1(30) button2 USER-COMMAND exec2.
 SELECTION-SCREEN END OF BLOCK b4.
 SELECTION-SCREEN : FUNCTION KEY 1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b5 WITH FRAME TITLE TEXT-s05.
+  PARAMETERS : p_pubhol AS CHECKBOX MODIF ID gr1,
+               p_strdy  AS CHECKBOX MODIF ID gr2,
+               p_sunday AS CHECKBOX MODIF ID gr2.
+SELECTION-SCREEN END OF BLOCK b5.
 
 DATA: h_excel TYPE ole2_object,        " Excel object
       h_mapl  TYPE ole2_object,         " list of workbooks
@@ -45,9 +50,13 @@ TYPES: BEGIN OF ty_dist,
        END OF ty_dist.
 
 TYPES: BEGIN OF ty_duration,
-         modul TYPE char10,
+         modul    TYPE char10,
          duration TYPE dec10,
        END OF ty_duration.
+
+TYPES: BEGIN OF ty_color,
+         color TYPE char4,
+       END OF ty_color.
 
 DATA: gt_dist_abap  TYPE TABLE OF ty_dist WITH EMPTY KEY,
       gt_dist_modul TYPE TABLE OF ty_dist WITH NON-UNIQUE SORTED KEY key1 COMPONENTS modul,
@@ -55,8 +64,10 @@ DATA: gt_dist_abap  TYPE TABLE OF ty_dist WITH EMPTY KEY,
       gt_dist_pi    TYPE TABLE OF ty_dist WITH EMPTY KEY,
       gt_duration   TYPE TABLE OF ty_duration WITH EMPTY KEY.
 
-DATA: gv_duration TYPE i,
-      gt_days     TYPE TABLE OF rke_dat.
+DATA: gv_duration    TYPE i,
+      gt_days        TYPE TABLE OF rke_dat,
+      gt_days_detail TYPE TABLE OF casdayattr.
+
 
 DATA: gt_comp_tab TYPE cl_abap_structdescr=>component_table.
 FIELD-SYMBOLS : <gfs_tab> TYPE STANDARD TABLE,
